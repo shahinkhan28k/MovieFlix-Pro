@@ -1764,29 +1764,41 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
           }
         }
 
-        const movieData: Movie = {
+        const movieData: Record<string, any> = {
           id: `ia-${item.id}`,
-          tmdbId: tmdbId,
-          imdbId: imdbId,
           embedUrl: `https://archive.org/embed/${item.id}`,
-          title: item.title,
-          description: finalDesc,
-          thumbnail: finalPoster,
-          videoUrl: item.videoUrl,
+          title: item.title || "Archive Feature Film",
+          description: finalDesc || "Internet Archive Public Domain Movie",
+          thumbnail: finalPoster || "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=1200",
+          videoUrl: item.videoUrl || "",
           category: finalCat,
           subCategory: subCat,
           language: "English",
-          year: finalYear,
-          duration: item.duration,
-          rating: finalRating,
+          year: Number(finalYear) || 2024,
+          duration: item.duration || "1h 45m",
+          rating: finalRating || "PG-13",
           featured: false,
           views: item.downloads || 500,
           likes: Math.floor((item.downloads || 500) * 0.15),
           createdAt: new Date().toISOString()
         };
 
+        if (tmdbId !== undefined && tmdbId !== null) {
+          movieData.tmdbId = tmdbId;
+        }
+        if (imdbId !== undefined && imdbId !== null) {
+          movieData.imdbId = imdbId;
+        }
+
+        const cleanMovieData: Record<string, any> = {};
+        for (const [key, val] of Object.entries(movieData)) {
+          if (val !== undefined) {
+            cleanMovieData[key] = val;
+          }
+        }
+
         const docRef = doc(db, "movies", `ia-${item.id}`);
-        batch.set(docRef, movieData);
+        batch.set(docRef, cleanMovieData);
 
         await registerCategoryInFirestore(finalCat, subCat, "English");
         successCount++;
@@ -1890,7 +1902,7 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
         let finalCat = stockCustomCategoryName.trim() || stockFixedCategory;
         let subCat = "HD Documentary";
 
-        const movieData: Movie = {
+        const movieData: Record<string, any> = {
           id: `px-${item.id}`,
           title: item.title,
           description: item.description,
@@ -1899,7 +1911,7 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
           category: finalCat,
           subCategory: subCat,
           language: "English",
-          year: item.year,
+          year: Number(item.year) || 2025,
           duration: item.duration,
           rating: item.rating,
           featured: false,
@@ -1908,8 +1920,15 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
           createdAt: new Date().toISOString()
         };
 
+        const cleanMovieData: Record<string, any> = {};
+        for (const [key, val] of Object.entries(movieData)) {
+          if (val !== undefined) {
+            cleanMovieData[key] = val;
+          }
+        }
+
         const docRef = doc(db, "movies", `px-${item.id}`);
-        batch.set(docRef, movieData);
+        batch.set(docRef, cleanMovieData);
 
         await registerCategoryInFirestore(finalCat, subCat, "English");
         successCount++;

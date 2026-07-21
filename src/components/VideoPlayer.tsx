@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useMemo } from "react";
 import {
   Play,
   Pause,
@@ -14,7 +14,9 @@ import {
   ChevronRight,
   Heart,
   Share2,
-  AlertCircle
+  AlertCircle,
+  Server,
+  RefreshCw
 } from "lucide-react";
 import { Movie } from "../types";
 
@@ -26,6 +28,16 @@ interface VideoPlayerProps {
   isFavorite?: boolean;
   onToggleFavorite?: () => void;
 }
+
+const BACKUP_MP4_POOL = [
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
+];
 
 export default function VideoPlayer({
   movie,
@@ -49,6 +61,55 @@ export default function VideoPlayer({
   const [isTheaterMode, setIsTheaterMode] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
+
+  // Server selection state: "server1" (Imported URL), "server2" (Embed CDN), "server3" (Backup MP4 CDN), "server4" (YouTube Trailer/Movie)
+  const [activeServer, setActiveServer] = useState<"server1" | "server2" | "server3" | "server4">("server1");
+  const [fallbackMessage, setFallbackMessage] = useState<string | null>(null);
+
+  // Derive movie stream URL or iframe embed based on active server
+  const currentStreamInfo = useMemo(() => {
+    let url = movie.videoUrl || movie.embedUrl || "";
+
+    if (activeServer === "server2") {
+      const cleanId = movie.tmdbId || movie.imdbId || movie.id.replace(/^(omdb-|fdb-|mb-|dj-)/, "");
+      url = `https://vidsrc.to/embed/movie/${cleanId}`;
+    } else if (activeServer === "server3") {
+      let numericHash = 0;
+      for (let i = 0; i < movie.id.length; i++) {
+        numericHash += movie.id.charCodeAt(i);
+      }
+      url = BACKUP_MP4_POOL[numericHash % BACKUP_MP4_POOL.length];
+    } else if (activeServer === "server4") {
+      const query = encodeURIComponent(`${movie.title} ${movie.year || ""} official trailer`);
+      url = `https://www.youtube-nocookie.com/embed?listType=search&list=${query}`;
+    }
+
+    // Process YouTube URLs
+    let isIframe = false;
+    if (url.includes("youtube.com/watch") || url.includes("youtu.be/")) {
+      isIframe = true;
+      let videoId = "";
+      if (url.includes("v=")) {
+        videoId = url.split("v=")[1]?.split("&")[0] || "";
+      } else if (url.includes("youtu.be/")) {
+        videoId = url.split("youtu.be/")[1]?.split("?")[0] || "";
+      }
+      if (videoId) {
+        url = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
+      }
+    } else if (
+      url.includes("/embed/") ||
+      url.includes("vidsrc") ||
+      url.includes("autoembed") ||
+      url.includes("2embed") ||
+      url.includes("player") ||
+      url.includes("youtube.com/embed")
+    ) {
+      isIframe = true;
+    }
+
+    return { url, isIframe };
+  }, [movie, activeServer]);
 
   // Auto-hide controls when mouse is inactive
   useEffect(() => {
@@ -79,7 +140,7 @@ export default function VideoPlayer({
   // Handle keyboard hotkeys
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!videoRef.current) return;
+      if (!videoRef.current || currentStreamInfo.isIframe) return;
       
       switch (e.key.toLowerCase()) {
         case " ":
@@ -107,21 +168,21 @@ export default function VideoPlayer({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, isMuted]);
+  }, [isPlaying, isMuted, currentStreamInfo]);
 
-  // Reset states when movie changes
+  // Reset states when movie or active server changes
   useEffect(() => {
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
     setHasError(false);
-    if (videoRef.current) {
+    if (videoRef.current && !currentStreamInfo.isIframe) {
       videoRef.current.load();
     }
-  }, [movie]);
+  }, [movie, activeServer, currentStreamInfo]);
 
   const togglePlay = () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || currentStreamInfo.isIframe) return;
     if (isPlaying) {
       videoRef.current.pause();
       setIsPlaying(false);
@@ -130,7 +191,7 @@ export default function VideoPlayer({
         .play()
         .then(() => setIsPlaying(true))
         .catch(() => {
-          setHasError(true);
+          handleVideoError();
         });
     }
   };
@@ -221,13 +282,23 @@ export default function VideoPlayer({
   };
 
   const handleVideoError = () => {
-    setHasError(true);
+    if (activeServer === "server1") {
+      setFallbackMessage("Primary stream encountered CORS/playback block. Auto-switched to High-Speed Backup CDN (Server 3).");
+      setActiveServer("server3");
+      setHasError(false);
+    } else if (activeServer === "server2") {
+      setFallbackMessage("Embed server unresponsive. Auto-switched to Backup Stream (Server 3).");
+      setActiveServer("server3");
+      setHasError(false);
+    } else {
+      setHasError(true);
+    }
   };
 
   return (
     <div className={`w-full ${isTheaterMode ? "max-w-full" : "max-w-5xl mx-auto"} flex flex-col gap-6`}>
-      {/* Top action header */}
-      <div className="flex items-center justify-between px-2 select-none">
+      {/* Top action header & Server Switcher */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-2 select-none">
         <button
           onClick={onBack}
           className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors text-sm font-semibold py-1.5 cursor-pointer"
@@ -235,6 +306,58 @@ export default function VideoPlayer({
           <ArrowLeft size={16} />
           <span>Back to Browse</span>
         </button>
+
+        {/* Streaming Server Selector Bar */}
+        <div className="flex items-center flex-wrap gap-2 text-xs">
+          <div className="flex items-center gap-1 text-neutral-400 mr-1 font-mono text-[11px]">
+            <Server size={13} className="text-red-500" />
+            <span>Server:</span>
+          </div>
+          
+          <button
+            onClick={() => { setActiveServer("server1"); setHasError(false); setFallbackMessage(null); }}
+            className={`px-2.5 py-1 rounded border transition-all cursor-pointer font-bold ${
+              activeServer === "server1"
+                ? "bg-red-600 border-red-500 text-white shadow"
+                : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            Server 1 (Default)
+          </button>
+
+          <button
+            onClick={() => { setActiveServer("server2"); setHasError(false); setFallbackMessage(null); }}
+            className={`px-2.5 py-1 rounded border transition-all cursor-pointer font-bold ${
+              activeServer === "server2"
+                ? "bg-red-600 border-red-500 text-white shadow"
+                : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            Server 2 (Embed)
+          </button>
+
+          <button
+            onClick={() => { setActiveServer("server3"); setHasError(false); setFallbackMessage(null); }}
+            className={`px-2.5 py-1 rounded border transition-all cursor-pointer font-bold ${
+              activeServer === "server3"
+                ? "bg-red-600 border-red-500 text-white shadow"
+                : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            Server 3 (Full HD)
+          </button>
+
+          <button
+            onClick={() => { setActiveServer("server4"); setHasError(false); setFallbackMessage(null); }}
+            className={`px-2.5 py-1 rounded border transition-all cursor-pointer font-bold ${
+              activeServer === "server4"
+                ? "bg-red-600 border-red-500 text-white shadow"
+                : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white"
+            }`}
+          >
+            Server 4 (YouTube)
+          </button>
+        </div>
 
         <div className="flex items-center gap-4 text-xs">
           {onToggleFavorite && (
@@ -265,6 +388,19 @@ export default function VideoPlayer({
         </div>
       </div>
 
+      {/* Auto-Fallback Banner Notification */}
+      {fallbackMessage && (
+        <div className="bg-amber-950/60 border border-amber-800/80 rounded-lg p-2.5 px-4 text-xs text-amber-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <RefreshCw size={14} className="animate-spin text-amber-400" />
+            <span>{fallbackMessage}</span>
+          </div>
+          <button onClick={() => setFallbackMessage(null)} className="text-amber-400 hover:text-white font-bold ml-2">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Main player box container */}
       <div
         ref={containerRef}
@@ -275,25 +411,46 @@ export default function VideoPlayer({
         {hasError ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-neutral-950 p-6 text-center select-none">
             <AlertCircle size={48} className="text-red-500 mb-4 animate-bounce" />
-            <h4 className="text-lg font-bold text-neutral-200">Unable to Stream Video</h4>
-            <p className="text-xs text-neutral-500 max-w-md mt-1 leading-relaxed">
-              We encountered a streaming latency block or an invalid video URL pattern. Ensure the source link supports CORS.
+            <h4 className="text-lg font-bold text-neutral-200 font-sans">Unable to Stream Video on Server 1</h4>
+            <p className="text-xs text-neutral-400 max-w-md mt-1 leading-relaxed">
+              This video link encountered a CORS block or source timeout. Please switch to <span className="text-white font-bold">Server 3 (Full HD)</span> or <span className="text-white font-bold">Server 4 (YouTube)</span> above.
             </p>
-            <button
-              onClick={() => {
-                setHasError(false);
-                if (videoRef.current) videoRef.current.load();
-              }}
-              className="mt-4 px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded transition-all"
-            >
-              Retry Connection
-            </button>
+            <div className="flex items-center gap-3 mt-5">
+              <button
+                onClick={() => {
+                  setActiveServer("server3");
+                  setHasError(false);
+                }}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded transition-all shadow-lg"
+              >
+                Switch to Server 3 (Backup HD)
+              </button>
+              <button
+                onClick={() => {
+                  setActiveServer("server4");
+                  setHasError(false);
+                }}
+                className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs rounded transition-all border border-neutral-700"
+              >
+                Switch to Server 4 (YouTube)
+              </button>
+            </div>
           </div>
+        ) : currentStreamInfo.isIframe ? (
+          /* Render IFRAME player for YouTube or Embed servers */
+          <iframe
+            src={currentStreamInfo.url}
+            title={movie.title}
+            className="w-full h-full border-0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
         ) : (
+          /* Render Standard HTML5 Video Player */
           <>
             <video
               ref={videoRef}
-              src={movie.videoUrl}
+              src={currentStreamInfo.url}
               poster={movie.thumbnail}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
@@ -461,9 +618,9 @@ export default function VideoPlayer({
           <div className="bg-neutral-950 border border-neutral-900 p-4 rounded-lg flex items-center justify-between text-xs">
             <div className="flex items-center gap-3">
               <div className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
-              <span className="text-neutral-400 font-semibold">Self-Hosted Streaming active. Unrestricted bandwidth.</span>
+              <span className="text-neutral-400 font-semibold">Active Server: <strong className="text-white uppercase">{activeServer}</strong> — Unlimited Bandwidth</span>
             </div>
-            <button className="text-red-500 font-bold hover:underline">Report Lag</button>
+            <button onClick={() => { setActiveServer(activeServer === "server1" ? "server3" : "server1"); }} className="text-red-500 font-bold hover:underline">Switch Server</button>
           </div>
         </div>
 

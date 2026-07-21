@@ -16,6 +16,9 @@ export interface Movie {
   language?: string;
   subCategory?: string;
   genres?: string[];
+  tmdbId?: number | string;
+  imdbId?: string;
+  embedUrl?: string;
 }
 
 export interface WatchHistoryItem {

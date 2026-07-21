@@ -835,6 +835,8 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
 
         const movieData: Movie = {
           id: uniqueId,
+          tmdbId: movieObj.id,
+          embedUrl: `https://vidsrc.to/embed/movie/${movieObj.id}`,
           title: movieObj.title,
           description: movieObj.overview || "No overview available from TMDB.",
           thumbnail: movieObj.backdrop_path 
@@ -1039,6 +1041,8 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
 
         const movieData: Movie = {
           id: `omdb-${imdbID}`,
+          imdbId: imdbID,
+          embedUrl: `https://vidsrc.to/embed/movie/${imdbID}`,
           title: detail.Title,
           description: detail.Plot && detail.Plot !== "N/A" ? detail.Plot : `Stream the high quality version of ${detail.Title} directly on our platform.`,
           thumbnail: posterUrl,

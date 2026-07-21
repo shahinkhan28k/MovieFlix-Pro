@@ -71,8 +71,13 @@ export default function VideoPlayer({
     let url = movie.videoUrl || movie.embedUrl || "";
 
     if (activeServer === "server2") {
-      const cleanId = movie.tmdbId || movie.imdbId || movie.id.replace(/^(omdb-|fdb-|mb-|dj-)/, "");
-      url = `https://vidsrc.to/embed/movie/${cleanId}`;
+      if ((movie.embedUrl && movie.embedUrl.includes("archive.org")) || movie.id.startsWith("ia-")) {
+        const iaId = movie.id.replace(/^ia-/, "");
+        url = `https://archive.org/embed/${iaId}`;
+      } else {
+        const cleanId = movie.tmdbId || movie.imdbId || movie.id.replace(/^(omdb-|fdb-|mb-|dj-|ia-)/, "");
+        url = `https://vidsrc.to/embed/movie/${cleanId}`;
+      }
     } else if (activeServer === "server3") {
       let numericHash = 0;
       for (let i = 0; i < movie.id.length; i++) {
@@ -84,9 +89,22 @@ export default function VideoPlayer({
       url = `https://www.youtube-nocookie.com/embed?listType=search&list=${query}`;
     }
 
-    // Process YouTube URLs
+    // Process Internet Archive, YouTube, and Embed URLs
     let isIframe = false;
-    if (url.includes("youtube.com/watch") || url.includes("youtu.be/")) {
+    if (url.includes("archive.org") || movie.id.startsWith("ia-")) {
+      isIframe = true;
+      if (!url.includes("/embed/")) {
+        const match = url.match(/archive\.org\/(?:download|details|embed)\/([^/]+)/);
+        if (match && match[1]) {
+          url = `https://archive.org/embed/${match[1]}`;
+        } else if (movie.embedUrl && movie.embedUrl.includes("/embed/")) {
+          url = movie.embedUrl;
+        } else {
+          const iaId = movie.id.replace(/^ia-/, "");
+          url = `https://archive.org/embed/${iaId}`;
+        }
+      }
+    } else if (url.includes("youtube.com/watch") || url.includes("youtu.be/")) {
       isIframe = true;
       let videoId = "";
       if (url.includes("v=")) {

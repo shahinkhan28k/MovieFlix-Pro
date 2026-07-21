@@ -1638,14 +1638,15 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
         const desc = Array.isArray(doc.description) ? doc.description.join(" ") : (doc.description || "Internet Archive Public Domain Film");
         const year = doc.year || "2024";
         const posterUrl = `https://archive.org/services/img/${doc.identifier}`;
-        const streamUrl = `https://archive.org/download/${doc.identifier}/${doc.identifier}.mp4`;
+        const embedUrl = `https://archive.org/embed/${doc.identifier}`;
 
         return {
           id: doc.identifier,
           title: typeof title === "string" ? title : doc.identifier,
           description: typeof desc === "string" ? desc.slice(0, 250) : "Internet Archive Public Domain Movie",
           thumbnail: posterUrl,
-          videoUrl: streamUrl,
+          videoUrl: embedUrl,
+          embedUrl: embedUrl,
           year: String(year),
           duration: "1h 45m",
           rating: "PG-13",
@@ -1764,13 +1765,14 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
           }
         }
 
+        const archiveEmbedUrl = `https://archive.org/embed/${item.id}`;
         const movieData: Record<string, any> = {
           id: `ia-${item.id}`,
-          embedUrl: `https://archive.org/embed/${item.id}`,
+          embedUrl: archiveEmbedUrl,
           title: item.title || "Archive Feature Film",
           description: finalDesc || "Internet Archive Public Domain Movie",
           thumbnail: finalPoster || "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=1200",
-          videoUrl: item.videoUrl || "",
+          videoUrl: item.videoUrl && item.videoUrl.includes("archive.org/embed/") ? item.videoUrl : archiveEmbedUrl,
           category: finalCat,
           subCategory: subCat,
           language: "English",

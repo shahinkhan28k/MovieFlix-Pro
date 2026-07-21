@@ -473,6 +473,7 @@ export default function App() {
                 onPlay={handlePlayMovie}
                 onToggleFavorite={handleToggleFavorite}
                 favorites={favorites}
+                onSelectSearchQuery={(q) => setSearchQuery(q)}
               />
             )}
 
@@ -483,6 +484,7 @@ export default function App() {
                 onPlay={handlePlayMovie}
                 onToggleFavorite={handleToggleFavorite}
                 favorites={favorites}
+                onSelectSearchQuery={(q) => setSearchQuery(q)}
               />
             )}
 

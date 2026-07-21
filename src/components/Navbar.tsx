@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Search, Bell, Menu, X, LogIn, LogOut, Film, User, Heart, Clock, LayoutDashboard, ChevronDown, Shield, ShieldCheck, Sun, Moon } from "lucide-react";
+import { Search, Bell, Menu, X, LogIn, LogOut, Film, User, Heart, Clock, LayoutDashboard, ChevronDown, Shield, ShieldCheck, Sun, Moon, Trash2, History } from "lucide-react";
 import { UserProfile, Movie, ThemeSettings } from "../types";
 import { CATEGORIES } from "../data/mockMovies";
 
@@ -42,6 +42,56 @@ export default function Navbar({
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCategoriesDropdownOpen, setIsCategoriesDropdownOpen] = useState(false);
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
+
+  // Persistent Search History in LocalStorage
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("movieflix_search_history");
+      return saved ? JSON.parse(saved) : ["Bad Boys", "Action", "Classic Movies", "Bangla Natok"];
+    } catch {
+      return ["Bad Boys", "Action", "Classic Movies", "Bangla Natok"];
+    }
+  });
+
+  const saveSearchTerm = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed || trimmed.length < 2) return;
+    setSearchHistory((prev) => {
+      const filtered = prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase());
+      const updated = [trimmed, ...filtered].slice(0, 10);
+      try {
+        localStorage.setItem("movieflix_search_history", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const removeSearchHistoryItem = (e: React.MouseEvent, itemToRemove: string) => {
+    e.stopPropagation();
+    setSearchHistory((prev) => {
+      const updated = prev.filter((item) => item !== itemToRemove);
+      try {
+        localStorage.setItem("movieflix_search_history", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
+  const clearAllSearchHistory = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSearchHistory([]);
+    try {
+      localStorage.removeItem("movieflix_search_history");
+    } catch (e) {}
+  };
+
+  const handleSelectHistoryItem = (term: string) => {
+    setSearchQuery(term);
+    saveSearchTerm(term);
+    setCurrentView("search");
+    setShowSearchHistory(false);
+  };
 
   // Dynamically compute active categories from existing movies to include TV Series, Bangla Natok, Web Series, K-Drama, etc.
   const dynamicCategories = useMemo(() => {
@@ -82,7 +132,8 @@ export default function Navbar({
   };
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchQuery(e.target.value);
+    const val = e.target.value;
+    setSearchQuery(val);
     if (currentView !== "search") {
       setCurrentView("search");
     }
@@ -122,33 +173,71 @@ export default function Navbar({
               Home
             </button>
 
-            {/* Categories Dropdown */}
+            {/* Categories Dropdown (Multi-column Mega Menu Layout) */}
             <div className="relative">
               <button
                 onClick={() => setIsCategoriesDropdownOpen(!isCategoriesDropdownOpen)}
-                onBlur={() => setTimeout(() => setIsCategoriesDropdownOpen(false), 200)}
-                className={`hover:text-white flex items-center gap-1 transition-colors cursor-pointer ${
-                  currentView === "category" ? "text-white font-semibold" : ""
+                className={`hover:text-white flex items-center gap-1 transition-colors cursor-pointer py-1 px-2 rounded-md ${
+                  currentView === "category" || isCategoriesDropdownOpen ? "text-white font-semibold bg-neutral-900/80" : ""
                 }`}
               >
                 <span>Categories</span>
-                <ChevronDown size={14} className={`transform transition-transform ${isCategoriesDropdownOpen ? "rotate-180" : ""}`} />
+                <ChevronDown size={14} className={`transform transition-transform duration-300 ${isCategoriesDropdownOpen ? "rotate-180" : ""}`} />
               </button>
 
               {isCategoriesDropdownOpen && (
-                <div className="absolute left-0 mt-2 w-48 bg-neutral-950 border border-neutral-800 rounded-md shadow-2xl overflow-hidden py-1 z-50">
-                  {dynamicCategories.map((category) => (
-                    <button
-                      key={category}
-                      onClick={() => handleCategorySelect(category)}
-                      className={`w-full text-left px-4 py-2 text-xs hover:bg-neutral-900 transition-colors ${
-                        selectedCategory === category ? "text-red-500 font-semibold bg-neutral-900" : "text-neutral-300"
-                      }`}
-                    >
-                      {category}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setIsCategoriesDropdownOpen(false)}
+                  />
+                  <div
+                    className="absolute left-0 sm:left-1/2 sm:-translate-x-1/3 md:-translate-x-1/4 mt-2 w-[320px] sm:w-[580px] md:w-[700px] lg:w-[820px] bg-neutral-950/95 backdrop-blur-2xl border border-neutral-800/90 rounded-2xl shadow-2xl p-4 z-50 animate-fade-in text-xs max-h-[380px] overflow-y-auto"
+                  >
+                    <div className="flex items-center justify-between pb-2.5 mb-3 border-b border-neutral-800/80">
+                      <span className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                        <Film size={15} className="text-red-500" />
+                        <span>All Categories & Genres ({dynamicCategories.length})</span>
+                      </span>
+                      <button
+                        onClick={() => setIsCategoriesDropdownOpen(false)}
+                        className="text-neutral-500 hover:text-white p-1 rounded hover:bg-neutral-800 transition-colors"
+                        title="Close"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {dynamicCategories.map((category) => {
+                        const count = movies ? movies.filter(m => m.category === category || m.subCategory === category).length : 0;
+                        const isSelected = selectedCategory === category;
+                        return (
+                          <button
+                            key={category}
+                            onClick={() => handleCategorySelect(category)}
+                            className={`text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 flex items-center justify-between gap-1 group ${
+                              isSelected
+                                ? "bg-red-600 text-white font-bold shadow-lg shadow-red-600/30 scale-[1.02]"
+                                : "bg-neutral-900/90 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800/80 hover:border-neutral-700"
+                            }`}
+                          >
+                            <span className="truncate">{category}</span>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold transition-colors flex-shrink-0 ${
+                                isSelected
+                                  ? "bg-red-800 text-white"
+                                  : "bg-neutral-800/90 group-hover:bg-neutral-700 text-neutral-400 group-hover:text-white"
+                              }`}
+                            >
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
 
@@ -215,11 +304,11 @@ export default function Navbar({
 
         {/* Secondary Navigation Actions */}
         <div className="flex items-center gap-4">
-          {/* Search Bar */}
+          {/* Search Bar with History Dropdown */}
           <div className="relative flex items-center">
             <div
-              className={`flex items-center bg-neutral-950 border border-neutral-800 rounded px-2 py-1 transition-all duration-300 ${
-                isSearchExpanded || searchQuery ? "w-44 sm:w-64 opacity-100" : "w-0 opacity-0 md:opacity-100 md:w-44 border-transparent bg-transparent"
+              className={`flex items-center bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 transition-all duration-300 ${
+                isSearchExpanded || searchQuery ? "w-48 sm:w-72 opacity-100" : "w-0 opacity-0 md:opacity-100 md:w-48 border-transparent bg-transparent"
               }`}
             >
               <Search size={16} className="text-neutral-400 mr-2 flex-shrink-0" />
@@ -228,27 +317,85 @@ export default function Navbar({
                 placeholder="Titles, people, genres..."
                 value={searchQuery}
                 onChange={handleSearchChange}
-                onFocus={() => setIsSearchExpanded(true)}
-                onBlur={() => {
-                  if (!searchQuery) setIsSearchExpanded(false);
+                onFocus={() => {
+                  setIsSearchExpanded(true);
+                  setShowSearchHistory(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && searchQuery.trim()) {
+                    saveSearchTerm(searchQuery);
+                    setCurrentView("search");
+                    setShowSearchHistory(false);
+                  }
                 }}
                 className="w-full bg-transparent border-0 outline-none text-xs text-white placeholder-neutral-500 p-0 focus:ring-0 focus:outline-none"
               />
               {searchQuery && (
                 <button
                   onClick={() => {
+                    saveSearchTerm(searchQuery);
                     setSearchQuery("");
                     setCurrentView("home");
+                    setShowSearchHistory(false);
                   }}
-                  className="text-neutral-500 hover:text-neutral-300 flex-shrink-0 ml-1"
+                  className="text-neutral-500 hover:text-neutral-300 flex-shrink-0 ml-1 p-0.5"
                 >
                   <X size={14} />
                 </button>
               )}
             </div>
+
+            {/* Search History Dropdown */}
+            {showSearchHistory && searchHistory.length > 0 && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setShowSearchHistory(false)}
+                />
+                <div className="absolute top-full right-0 mt-2 w-64 sm:w-80 bg-neutral-950/95 backdrop-blur-2xl border border-neutral-800 rounded-2xl shadow-2xl p-3 z-50 text-xs animate-fade-in">
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-800/80">
+                    <span className="text-[11px] font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <Clock size={13} className="text-red-500" />
+                      <span>Search History</span>
+                    </span>
+                    <button
+                      onClick={clearAllSearchHistory}
+                      className="text-[10px] text-neutral-500 hover:text-red-400 font-semibold transition-colors flex items-center gap-1"
+                    >
+                      <Trash2 size={11} />
+                      <span>Clear All</span>
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
+                    {searchHistory.map((term, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSelectHistoryItem(term)}
+                        className="flex items-center gap-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white px-2.5 py-1 rounded-full border border-neutral-800 hover:border-neutral-700 cursor-pointer text-xs transition-all group"
+                      >
+                        <Clock size={11} className="text-neutral-500 group-hover:text-red-400" />
+                        <span className="truncate max-w-[130px] font-medium">{term}</span>
+                        <button
+                          onClick={(e) => removeSearchHistoryItem(e, term)}
+                          className="text-neutral-500 hover:text-red-400 ml-0.5 p-0.5 rounded-full hover:bg-neutral-700/50"
+                          title="Remove from history"
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
             {!(isSearchExpanded || searchQuery) && (
               <button
-                onClick={() => setIsSearchExpanded(true)}
+                onClick={() => {
+                  setIsSearchExpanded(true);
+                  setShowSearchHistory(true);
+                }}
                 className="p-2 text-neutral-300 hover:text-white transition-colors md:hidden"
                 aria-label="Search"
               >

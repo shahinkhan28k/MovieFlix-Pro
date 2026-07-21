@@ -42,7 +42,7 @@ import {
 } from "lucide-react";
 import { Movie, UserProfile, ModeratorPermissions, UserRole, ThemeSettings, DEFAULT_THEME_SETTINGS, SiteThemeId, SiteMode, ScreenLayoutMode } from "../types";
 import { db, storage } from "../firebase";
-import { doc, setDoc, deleteDoc, collection, writeBatch, onSnapshot } from "firebase/firestore";
+import { doc, setDoc, deleteDoc, getDocs, collection, writeBatch, onSnapshot } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { INITIAL_MOVIES, CATEGORIES } from "../data/mockMovies";
 import { generateBulkMovies } from "../data/importerTemplates";
@@ -671,6 +671,56 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
     } catch (err: any) {
       console.error("Firestore delete failed:", err);
       triggerNotification("error", `Deletion failed: ${err.message}`);
+    }
+  };
+
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  const handleDeleteAllMovies = async () => {
+    if (movies.length === 0) {
+      triggerNotification("error", "ওয়েবসাইটে মুছে ফেলার মতো কোনো ভিডিও নেই।");
+      return;
+    }
+
+    const confirmMsg = `⚠️ সাবধান! আপনি কি নিশ্চিত যে ওয়েবসাইটের সমস্ত (${movies.length} টি) ভিডিও একবারে ডাটাবেস থেকে মুছে ফেলতে চান?\n\nএই কাজটি সম্পন্ন হলে ডাটাবেসের সকল ভিডিও স্থায়ীভাবে ডিলিট হয়ে যাবে!`;
+    if (!window.confirm(confirmMsg)) return;
+
+    const doubleCheck = window.prompt(`মুছে ফেলা নিশ্চিত করতে "DELETE ALL" শব্দটি হুবহু লিখুন:`);
+    if (doubleCheck !== "DELETE ALL") {
+      triggerNotification("error", "সঠিক বাক্য লেখা হয়নি। ভিডিও ডিলিট করা বাতিল করা হয়েছে।");
+      return;
+    }
+
+    setIsDeletingAll(true);
+    try {
+      const snapshot = await getDocs(collection(db, "movies"));
+      if (snapshot.empty) {
+        triggerNotification("error", "ডাটাবেসে কোনো ভিডিও পাওয়া যায়নি।");
+        setIsDeletingAll(false);
+        return;
+      }
+
+      const docsToDelete = snapshot.docs;
+      let deletedCount = 0;
+
+      // Delete in batches of 450 (Firestore batch write limit is 500)
+      for (let i = 0; i < docsToDelete.length; i += 450) {
+        const chunk = docsToDelete.slice(i, i + 450);
+        const batch = writeBatch(db);
+        chunk.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+        deletedCount += chunk.length;
+      }
+
+      triggerNotification("success", `সাফল্যের সাথে ডাটাবেস থেকে মোট ${deletedCount} টি ভিডিও মুছে ফেলা হয়েছে!`);
+      await onRefreshMovies();
+    } catch (err: any) {
+      console.error("Delete all movies failed:", err);
+      triggerNotification("error", `ভিডিও মোছা ব্যর্থ হয়েছে: ${err.message}`);
+    } finally {
+      setIsDeletingAll(false);
     }
   };
 
@@ -1638,6 +1688,7 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
         const desc = Array.isArray(doc.description) ? doc.description.join(" ") : (doc.description || "Internet Archive Public Domain Film");
         const year = doc.year || "2024";
         const posterUrl = `https://archive.org/services/img/${doc.identifier}`;
+        const downloadUrl = `https://archive.org/download/${doc.identifier}`;
         const embedUrl = `https://archive.org/embed/${doc.identifier}`;
 
         return {
@@ -1645,7 +1696,7 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
           title: typeof title === "string" ? title : doc.identifier,
           description: typeof desc === "string" ? desc.slice(0, 250) : "Internet Archive Public Domain Movie",
           thumbnail: posterUrl,
-          videoUrl: embedUrl,
+          videoUrl: downloadUrl,
           embedUrl: embedUrl,
           year: String(year),
           duration: "1h 45m",
@@ -1765,6 +1816,7 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
           }
         }
 
+        const archiveDownloadUrl = item.videoUrl && item.videoUrl.includes("archive.org/download/") ? item.videoUrl : `https://archive.org/download/${item.id}`;
         const archiveEmbedUrl = `https://archive.org/embed/${item.id}`;
         const movieData: Record<string, any> = {
           id: `ia-${item.id}`,
@@ -1772,7 +1824,7 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
           title: item.title || "Archive Feature Film",
           description: finalDesc || "Internet Archive Public Domain Movie",
           thumbnail: finalPoster || "https://images.unsplash.com/photo-1536440136628-849c177e76a1?q=80&w=1200",
-          videoUrl: item.videoUrl && item.videoUrl.includes("archive.org/embed/") ? item.videoUrl : archiveEmbedUrl,
+          videoUrl: archiveDownloadUrl,
           category: finalCat,
           subCategory: subCat,
           language: "English",
@@ -2042,14 +2094,26 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
 
         <div className="flex flex-wrap items-center gap-2.5">
           {canManageMovies && (
-            <button
-              onClick={handleBulkSeed}
-              disabled={isSubmitting}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 text-xs font-bold text-red-500 rounded transition-all cursor-pointer active:scale-95"
-            >
-              <Database size={13} />
-              <span>Seed Default Movies</span>
-            </button>
+            <>
+              <button
+                onClick={handleBulkSeed}
+                disabled={isSubmitting || isDeletingAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 text-xs font-bold text-red-500 rounded transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+              >
+                <Database size={13} />
+                <span>Seed Default Movies</span>
+              </button>
+
+              <button
+                onClick={handleDeleteAllMovies}
+                disabled={isDeletingAll || movies.length === 0}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/80 hover:bg-red-900/90 border border-red-800/80 text-xs font-extrabold text-red-300 hover:text-white rounded transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+                title="Delete all videos from the website database at once"
+              >
+                <Trash2 size={13} className={isDeletingAll ? "animate-spin text-red-400" : "text-red-400"} />
+                <span>{isDeletingAll ? "Deleting..." : "Delete All Videos (সমস্ত ভিডিও ডিলিট)"}</span>
+              </button>
+            </>
           )}
 
           <button
@@ -2057,7 +2121,7 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
             className="p-1.5 bg-neutral-950 hover:bg-neutral-900 border border-neutral-800 rounded transition-all text-neutral-400 hover:text-white cursor-pointer"
             title="Refresh database catalog"
           >
-            <RefreshCw size={14} className={isSubmitting ? "animate-spin" : ""} />
+            <RefreshCw size={14} className={isSubmitting || isDeletingAll ? "animate-spin" : ""} />
           </button>
         </div>
       </div>
@@ -2241,11 +2305,24 @@ export default function Admin({ movies, onRefreshMovies, user }: AdminProps) {
       {/* Tab Content 1: Catalog List */}
       {activeTab === "list" && (
         <div className="bg-neutral-950 border border-neutral-900 rounded-lg overflow-hidden">
-          <div className="p-4 bg-neutral-900/40 border-b border-neutral-900 flex justify-between items-center">
-            <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Stream Repository</span>
-            <span className="text-[10px] bg-red-600/10 text-red-500 px-2 py-0.5 rounded border border-red-500/20 font-bold uppercase">
-              Cloud Synchronized
-            </span>
+          <div className="p-4 bg-neutral-900/40 border-b border-neutral-900 flex flex-wrap justify-between items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-neutral-400 uppercase tracking-wider">Stream Repository ({movies.length})</span>
+              <span className="text-[10px] bg-red-600/10 text-red-500 px-2 py-0.5 rounded border border-red-500/20 font-bold uppercase">
+                Cloud Synchronized
+              </span>
+            </div>
+
+            {canManageMovies && movies.length > 0 && (
+              <button
+                onClick={handleDeleteAllMovies}
+                disabled={isDeletingAll}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-950/90 hover:bg-red-900 border border-red-800 text-xs font-black text-red-300 hover:text-white rounded-lg transition-all cursor-pointer shadow-lg active:scale-95 disabled:opacity-50"
+              >
+                <Trash2 size={13} className={isDeletingAll ? "animate-spin text-red-400" : "text-red-400"} />
+                <span>{isDeletingAll ? "Deleting All..." : `Delete All ${movies.length} Videos (সব ভিডিও মুছুন)`}</span>
+              </button>
+            )}
           </div>
 
           <div className="divide-y divide-neutral-900/80">

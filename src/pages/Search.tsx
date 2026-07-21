@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import MovieCard from "../components/MovieCard";
 import AdSensePlaceholder from "../components/AdSensePlaceholder";
 import { Movie } from "../types";
-import { Search as SearchIcon } from "lucide-react";
+import { Search as SearchIcon, Clock, Trash2, X } from "lucide-react";
 
 interface SearchProps {
   query: string;
@@ -10,10 +10,38 @@ interface SearchProps {
   onPlay: (movie: Movie) => void;
   onToggleFavorite: (movie: Movie) => void;
   favorites: string[];
+  onSelectSearchQuery?: (q: string) => void;
 }
 
-export default function Search({ query, movies, onPlay, onToggleFavorite, favorites }: SearchProps) {
+export default function Search({ query, movies, onPlay, onToggleFavorite, favorites, onSelectSearchQuery }: SearchProps) {
   
+  // Local state for search history
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("movieflix_search_history");
+      return saved ? JSON.parse(saved) : ["Bad Boys", "Action", "Classic Movies", "Bangla Natok"];
+    } catch {
+      return ["Bad Boys", "Action", "Classic Movies", "Bangla Natok"];
+    }
+  });
+
+  const clearHistory = () => {
+    setSearchHistory([]);
+    try {
+      localStorage.removeItem("movieflix_search_history");
+    } catch (e) {}
+  };
+
+  const removeItem = (term: string) => {
+    setSearchHistory((prev) => {
+      const updated = prev.filter((t) => t !== term);
+      try {
+        localStorage.setItem("movieflix_search_history", JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
+
   // Real-time keyword filter across titles, categories, sub-categories, languages and descriptions (deduplicated)
   const rawFiltered = movies.filter(
     (movie) =>
@@ -34,19 +62,79 @@ export default function Search({ query, movies, onPlay, onToggleFavorite, favori
         
         {/* Search Header */}
         <div className="border-b border-neutral-900 pb-5">
-          <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
-            <SearchIcon className="text-red-600 h-5 w-5" />
-            {query ? (
-              <span>
-                Search results for: <strong className="text-red-500">"{query}"</strong>
-              </span>
-            ) : (
-              <span>Explore Stream Catalog</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2">
+                <SearchIcon className="text-red-600 h-5 w-5" />
+                {query ? (
+                  <span>
+                    Search results for: <strong className="text-red-500">"{query}"</strong>
+                  </span>
+                ) : (
+                  <span>Explore Stream Catalog</span>
+                )}
+              </h2>
+              <p className="text-xs text-neutral-500 mt-1">
+                Found {filteredMovies.length} matching entries in Cloud Firestore.
+              </p>
+            </div>
+
+            {query && onSelectSearchQuery && (
+              <button
+                onClick={() => onSelectSearchQuery("")}
+                className="self-start sm:self-auto text-xs bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors"
+              >
+                <X size={14} />
+                <span>Clear Search Filter</span>
+              </button>
             )}
-          </h2>
-          <p className="text-xs text-neutral-500 mt-1">
-            Found {filteredMovies.length} matching entries in Cloud Firestore.
-          </p>
+          </div>
+
+          {/* Search History Tags Section */}
+          {searchHistory.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-neutral-900/80">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-neutral-400 flex items-center gap-1.5 uppercase tracking-wider">
+                  <Clock size={13} className="text-red-500" />
+                  <span>Recent Searches (সম্প্রতি খোঁজা হয়েছে)</span>
+                </span>
+                <button
+                  onClick={clearHistory}
+                  className="text-[11px] text-neutral-500 hover:text-red-400 font-medium transition-colors flex items-center gap-1"
+                >
+                  <Trash2 size={12} />
+                  <span>Clear History</span>
+                </button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {searchHistory.map((term, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex items-center gap-1.5 text-xs px-3 py-1 rounded-full border transition-all cursor-pointer ${
+                      query.toLowerCase() === term.toLowerCase()
+                        ? "bg-red-600 border-red-500 text-white font-bold shadow-md shadow-red-600/20"
+                        : "bg-neutral-900 hover:bg-neutral-800 border-neutral-800 text-neutral-300 hover:text-white"
+                    }`}
+                    onClick={() => onSelectSearchQuery && onSelectSearchQuery(term)}
+                  >
+                    <Clock size={11} className={query.toLowerCase() === term.toLowerCase() ? "text-white" : "text-neutral-500"} />
+                    <span>{term}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeItem(term);
+                      }}
+                      className="text-neutral-500 hover:text-red-400 ml-1 p-0.5 rounded-full"
+                      title="Remove search term"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Results grid layout */}
